@@ -1,0 +1,17 @@
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# pi-fleet
+node_modules/
+dist/
+*.log
+.beads
+.agents
+AGENTS.md
+CLAUDE.md
+.claude
+.codex

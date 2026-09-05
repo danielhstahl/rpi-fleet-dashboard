@@ -1,0 +1,17 @@
+{
+  "name": "pi-fleet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-network fleet manager for Raspberry Pis: health, journals, package updates, network traffic, and an attention-first dashboard.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @pi-fleet/server",
+    "dev:web": "npm run dev -w @pi-fleet/web",
+    "build": "npm run build -w @pi-fleet/web",
+    "start": "npm run start -w @pi-fleet/server",
+    "test": "npm run test -w @pi-fleet/server"
+  }
+}
