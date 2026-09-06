@@ -78,18 +78,16 @@ interface NetPrev {
 
 export type PiSource = 'mdns' | 'manual' | 'mock';
 
-export interface PiAuth {
-  type: 'key' | 'password';
-}
-
 export interface PiState {
   id: string;
   name: string;
   ip: string;
-  user: string;
+  /** Explicit SSH user; when unset, `~/.ssh/config` decides. */
+  user?: string;
+  /** Optional ssh-config host alias used instead of the IP for connecting. */
+  sshHost?: string;
   sshPort: number;
   source: PiSource;
-  auth?: PiAuth;
   addedAt: number;
   online: boolean;
   probeFailures: number;
@@ -106,7 +104,6 @@ export interface PiState {
     load: Ring<number>;
   };
   pkgs: PkgState;
-  upgrading: boolean;
   journal: JournalState;
   attention: AttentionItem[];
   score: number;
@@ -141,7 +138,6 @@ export interface SnapshotPi {
   source: PiSource;
   online: boolean;
   score: number;
-  upgrading: boolean;
   probeFailures: number;
   attention: SnapshotAttention[];
   metrics: SnapshotMetrics | null;
@@ -175,11 +171,6 @@ export interface PiDetail extends Omit<PiState, 'hist' | 'netHistory' | '_netPre
   netHistory: Record<string, Array<[number, NetSample]>>;
 }
 
-export interface UpgradeOpts {
-  onLine: (line: string) => void;
-  onDone: (ok: boolean) => void;
-}
-
 export interface JournalOpts {
   onLine: (line: JournalLine) => void;
   onExit?: (code: number) => void;
@@ -194,7 +185,6 @@ export interface Prober {
   probeHealth(): Promise<void>;
   probeNet(): Promise<void>;
   probePkgs(): Promise<void>;
-  upgrade(opts: UpgradeOpts): Promise<void>;
   /** Starts a live journal tail; resolves with a function that stops it. */
   startJournal(opts: JournalOpts): Promise<() => void>;
   stopJournal(): void;
@@ -206,7 +196,6 @@ export interface MockFleet {
 
 export type WsServerMsg =
   | { type: 'fleet'; data: FleetSnapshot }
-  | { type: 'journal'; pi: string; line: JournalLine }
-  | { type: 'upgrade'; pi: string; line?: string; done?: boolean; ok?: boolean };
+  | { type: 'journal'; pi: string; line: JournalLine };
 
 export type WsClientMsg = { type: 'subscribe' | 'unsubscribe'; pi: string };

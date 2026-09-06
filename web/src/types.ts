@@ -51,7 +51,6 @@ export interface SnapshotPi {
   source: string;
   online: boolean;
   score: number;
-  upgrading: boolean;
   probeFailures: number;
   attention: AttentionItem[];
   metrics: Metrics | null;
@@ -72,17 +71,9 @@ export interface JournalLine {
   message: string;
 }
 
-/** Upgrade progress state for one Pi (accumulated from ws 'upgrade' msgs). */
-export interface UpgradeState {
-  lines: string[];
-  /** undefined while running, true/false once finished */
-  done: boolean | null;
-}
-
 export type WsServerMsg =
   | { type: 'fleet'; data: FleetSnapshot }
-  | { type: 'journal'; pi: string; line: JournalLine }
-  | { type: 'upgrade'; pi: string; line?: string; done?: boolean; ok?: boolean };
+  | { type: 'journal'; pi: string; line: JournalLine };
 
 export type WsClientMsg =
   | { type: 'subscribe'; pi: string }
@@ -95,7 +86,10 @@ export interface PiDetailData {
   id: string;
   name: string;
   ip: string;
-  user: string;
+  /** Explicit SSH user; absent when ~/.ssh/config decides. */
+  user?: string;
+  /** ssh-config host alias used instead of the IP when connecting. */
+  sshHost?: string;
   sshPort: number;
   source: string;
   addedAt: number;
@@ -114,7 +108,6 @@ export interface PiDetailData {
   };
   netHistory: Record<string, HistPoint<NetSample>[]>;
   pkgs: { total: number; security: number; list: string[]; at: number; checked: boolean };
-  upgrading: boolean;
   journal: {
     lines: JournalLine[];
     oomCount: number;

@@ -1,8 +1,8 @@
 // One-shot health probe: a single sh script run over SSH emits one
 // pipe-delimited line with every metric we need.
 
-import type { SshOpts } from './ssh.js';
-import { execOnce } from './ssh.js';
+import type { SshTarget } from './ssh.js';
+import { runOnce } from './ssh.js';
 import type { Fleet } from '../state/fleet.js';
 import type { MetricsInput } from '../types.js';
 
@@ -54,8 +54,8 @@ export function parseHealth(raw: string): MetricsInput {
   };
 }
 
-export async function runHealthScript(opts: SshOpts, fleet: Fleet, piId: string): Promise<void> {
-  const raw = await execOnce(opts, HEALTH_SCRIPT, 10_000);
+export async function runHealthScript(t: SshTarget, fleet: Fleet, piId: string): Promise<void> {
+  const raw = await runOnce(t, HEALTH_SCRIPT, 10_000);
   const h = parseHealth(raw);
   fleet.updateMetrics(piId, { ...h, at: Date.now() });
 }

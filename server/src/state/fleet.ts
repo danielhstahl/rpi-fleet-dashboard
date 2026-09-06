@@ -8,7 +8,7 @@ import type {
   JournalLine,
   Metrics,
   MetricsInput,
-  PiAuth,
+  NetSample,
   PiDetail,
   PiSource,
   PiState,
@@ -16,6 +16,7 @@ import type {
 } from '../types.js';
 import { Ring } from './ring.js';
 import { evaluateAttention, scoreItems } from './attention.js';
+import type { FleetStorage, StoredFleet } from './store.js';
 
 export interface FleetOptions {
   /** health history ring capacity (default: ~3h at 15s cadence) */
@@ -26,16 +27,20 @@ export interface FleetOptions {
   journalLines?: number;
   /** window (ms) for OOM / error counts, relative to the newest line */
   journalWindowMs?: number;
+  /** optional persistence mirror (sqlite) — live mode only */
+  storage?: FleetStorage;
 }
 
 export interface AddPiOpts {
   id?: string;
   name: string;
   ip: string;
+  /** Explicit SSH user; omit to let the local ~/.ssh/config decide. */
   user?: string;
+  /** ssh-config host alias used instead of the IP when connecting. */
+  sshHost?: string;
   sshPort?: number;
   source?: PiSource;
-  auth?: PiAuth;
 }
 
 export type FleetEvent =
@@ -54,7 +59,6 @@ export function blankPi(id: string, name: string, ip: string): PiState {
     id,
     name,
     ip,
-    user: 'pi',
     sshPort: 22,
     source: 'manual',
     addedAt: Date.now(),
@@ -73,7 +77,6 @@ export function blankPi(id: string, name: string, ip: string): PiState {
       load: new Ring<number>(),
     },
     pkgs: { total: 0, security: 0, list: [], at: 0, checked: false },
-    upgrading: false,
     journal: { lines: [], oomCount: 0, errorCount: 0, lastOom: null, lastError: null },
     attention: [],
     score: 0,
@@ -82,10 +85,12 @@ export function blankPi(id: string, name: string, ip: string): PiState {
 
 export class Fleet {
   private pis: Map<string, PiState> = new Map();
-  private opts: Required<FleetOptions>;
+  private opts: Required<Omit<FleetOptions, 'storage'>>;
+  private storage: FleetStorage | undefined;
   onEvent: ((ev: FleetEvent) => void) | null = null;
 
   constructor(opts: FleetOptions = {}) {
+    this.storage = opts.storage;
     this.opts = {
       historyPoints: opts.historyPoints ?? 720,
       netHistoryPoints: opts.netHistoryPoints ?? 720,
@@ -114,10 +119,10 @@ export class Fleet {
     if (existing) return existing;
 
     const pi = blankPi(id, opts.name, opts.ip);
-    pi.user = opts.user ?? 'pi';
+    pi.user = opts.user;
+    pi.sshHost = opts.sshHost;
     pi.sshPort = opts.sshPort ?? 22;
     pi.source = opts.source ?? 'manual';
-    pi.auth = opts.auth;
     const cap = this.opts.historyPoints;
     pi.hist = {
       cpu: new Ring<number>(cap),
@@ -127,6 +132,7 @@ export class Fleet {
       load: new Ring<number>(cap),
     };
     this.pis.set(id, pi);
+    this.storage?.upsertPi(pi);
     this.recompute(pi);
     this.onEvent?.({ type: 'add', pi });
     return pi;
@@ -136,6 +142,7 @@ export class Fleet {
     const pi = this.pis.get(id);
     if (!pi) return false;
     this.pis.delete(id);
+    this.storage?.removePi(id);
     this.onEvent?.({ type: 'remove', id, name: pi.name });
     return true;
   }
@@ -202,6 +209,14 @@ export class Fleet {
     p.hist.disk.push(metrics.diskPct, at);
     p.hist.temp.push(metrics.tempC, at);
     p.hist.load.push(metrics.load1, at);
+    const s = this.storage;
+    if (s) {
+      s.appendScalar(id, 'cpu', at, metrics.cpuPct);
+      s.appendScalar(id, 'mem', at, metrics.memPct);
+      s.appendScalar(id, 'disk', at, metrics.diskPct);
+      s.appendScalar(id, 'temp', at, metrics.tempC);
+      s.appendScalar(id, 'load', at, metrics.load1);
+    }
     this.recompute(p);
   }
 
@@ -227,6 +242,7 @@ export class Fleet {
           p.netHistory[iface] = ring;
         }
         ring.push(sample, nowMs);
+        this.storage?.appendNet(id, iface, sample);
       }
       prev[iface] = { rx: c.rx, tx: c.tx, at: nowMs };
     }
@@ -247,6 +263,7 @@ export class Fleet {
     const newest = line.at;
     j.oomCount = j.lines.filter((l) => l.level === 'oom' && newest - l.at <= this.opts.journalWindowMs).length;
     j.errorCount = j.lines.filter((l) => l.level === 'error' && newest - l.at <= this.opts.journalWindowMs).length;
+    this.storage?.appendJournal(id, line);
     this.recompute(p);
   }
 
@@ -260,14 +277,70 @@ export class Fleet {
     const p = this.pis.get(id);
     if (!p) return;
     p.pkgs = { ...pkgs, at: Date.now(), checked: true };
+    this.storage?.setPkgs(id, p.pkgs);
     this.recompute(p);
   }
 
-  setUpgrading(id: string, v: boolean): void {
-    const p = this.pis.get(id);
-    if (!p) return;
-    p.upgrading = v;
-    this.recompute(p);
+  /**
+   * Rebuild in-memory state from a persisted snapshot (startup restore).
+   * Rings are re-filled in stored order (capacity re-applied for free),
+   * journal lines are windowed like the live path, and connectivity fields
+   * start fresh — probes re-establish online state after the restart.
+   * Returns the number of Pis restored.
+   */
+  restore(data: StoredFleet): number {
+    const cap = this.opts.historyPoints;
+    const netCap = this.opts.netHistoryPoints;
+    let n = 0;
+    for (const sp of data.pis) {
+      if (this.pis.has(sp.id)) continue;
+      const pi = blankPi(sp.id, sp.name, sp.ip);
+      pi.user = sp.user ?? undefined;
+      pi.sshHost = sp.sshHost ?? undefined;
+      pi.sshPort = sp.sshPort;
+      pi.source = sp.source;
+      pi.addedAt = sp.addedAt;
+      pi.hist = {
+        cpu: new Ring<number>(cap),
+        mem: new Ring<number>(cap),
+        disk: new Ring<number>(cap),
+        temp: new Ring<number | null>(cap),
+        load: new Ring<number>(cap),
+      };
+      const h = data.hist[sp.id];
+      for (const pt of h?.cpu ?? []) if (pt.value !== null) pi.hist.cpu.push(pt.value, pt.at);
+      for (const pt of h?.mem ?? []) if (pt.value !== null) pi.hist.mem.push(pt.value, pt.at);
+      for (const pt of h?.disk ?? []) if (pt.value !== null) pi.hist.disk.push(pt.value, pt.at);
+      for (const pt of h?.temp ?? []) pi.hist.temp.push(pt.value, pt.at);
+      for (const pt of h?.load ?? []) if (pt.value !== null) pi.hist.load.push(pt.value, pt.at);
+      for (const [iface, samples] of Object.entries(data.net[sp.id] ?? {})) {
+        const ring = new Ring<NetSample>(netCap);
+        for (const s of samples) ring.push(s, s.at);
+        pi.netHistory[iface] = ring;
+      }
+      const jl = data.journal[sp.id];
+      if (jl && jl.length > 0) {
+        const newest = jl[jl.length - 1]!.at;
+        const win = jl.filter((l) => newest - l.at <= this.opts.journalWindowMs);
+        pi.journal.lines = win;
+        pi.journal.oomCount = win.filter((l) => l.level === 'oom').length;
+        pi.journal.errorCount = win.filter((l) => l.level === 'error').length;
+        for (let i = win.length - 1; i >= 0; i--) {
+          const l = win[i]!;
+          if (l.level === 'oom' && pi.journal.lastOom === null) pi.journal.lastOom = l.message;
+          if (l.level === 'error' && pi.journal.lastError === null) pi.journal.lastError = l.message;
+        }
+      }
+      const pk = data.pkgs[sp.id];
+      if (pk) pi.pkgs = { total: pk.total, security: pk.security, list: pk.list, at: pk.at, checked: pk.checked };
+      this.pis.set(sp.id, pi);
+      this.recompute(pi);
+      // Announce like a normal join so probers attach (index.ts wires
+      // probe attachment off this event).
+      this.onEvent?.({ type: 'add', pi });
+      n += 1;
+    }
+    return n;
   }
 
   // ------------------------------------------------------------- outputs --
@@ -286,7 +359,6 @@ export class Fleet {
           source: p.source,
           online: p.online,
           score: p.score,
-          upgrading: p.upgrading,
           probeFailures: p.probeFailures,
           attention: p.attention.map((a) => ({
             severity: a.severity,

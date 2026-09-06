@@ -39,7 +39,6 @@ export interface MockIntervals {
   netIntervalMs: number;
   pkgIntervalMs: number;
   journalIntervalMs: number;
-  upgradeDelayMs: number;
 }
 
 interface MockState {
@@ -243,34 +242,6 @@ function makeMockProber(id: string, st: MockState, deps: MockProberDeps): Prober
       probePkgs();
     },
 
-    upgrade({ onLine, onDone }): Promise<void> {
-      return new Promise<void>((resolve) => {
-        let i = 0;
-        const total = 10;
-        const t = setInterval(() => {
-          i += 1;
-          onLine(
-            i < total
-              ? `[${i}/${total}] (simulated) Upgrading ${id}: apt-get output line`
-              : '(simulated) full-upgrade complete',
-          );
-          if (i >= total) {
-            clearInterval(t);
-            // An upgraded Pi is quiet again: traffic down, no OOM storm,
-            // and nothing left to upgrade.
-            st.rx = Math.max(20_000, st.rx * 0.4);
-            st.tx = Math.max(10_000, st.tx * 0.4);
-            st.oomEvery = 0;
-            st.mem = 45;
-            fleet.setPackages(id, { total: 0, security: 0, list: [] });
-            onDone(true);
-            resolve();
-          }
-        }, Math.max(1, config.upgradeDelayMs));
-        timers.push(t);
-      });
-    },
-
     async startJournal({ onLine }): Promise<() => void> {
       // The shared journal interval already pushes + broadcasts lines for
       // every Pi; a subscribed viewer additionally gets a heartbeat so the
@@ -308,7 +279,6 @@ export function startMockFleet(opts: {
       name: seed.name,
       ip: seed.ip,
       source: 'mock',
-      user: 'pi',
     });
     const st = initState(seed.profile);
     const prober = makeMockProber(seed.id, st, {

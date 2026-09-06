@@ -2,10 +2,9 @@
  * Live fleet state via the server WebSocket.
  * - `fleet`: latest snapshot (5s cadence + immediate pushes)
  * - `journal[pi]`: appended live journal lines (subscribed Pis)
- * - `upgrades[pi]`: appended upgrade progress lines
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FleetSnapshot, JournalLine, UpgradeState, WsServerMsg } from '../types';
+import type { FleetSnapshot, JournalLine, WsServerMsg } from '../types';
 
 /** Boundary guard for untrusted ws payloads (JSON.parse returns `unknown`). */
 function isWsServerMsg(m: unknown): m is WsServerMsg {
@@ -20,7 +19,6 @@ export function useFleet() {
   const [fleet, setFleet] = useState<FleetSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [journal, setJournal] = useState<Record<string, JournalLine[]>>({});
-  const [upgrades, setUpgrades] = useState<Record<string, UpgradeState>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const subs = useRef<Set<string>>(new Set());
 
@@ -53,16 +51,6 @@ export function useFleet() {
           setJournal((prev) => {
             const arr = (prev[msg.pi] ?? []).concat(msg.line);
             return { ...prev, [msg.pi]: arr.slice(-400) };
-          });
-        } else if (msg.type === 'upgrade') {
-          setUpgrades((prev) => {
-            const cur: UpgradeState = prev[msg.pi] ?? { lines: [], done: null };
-            return {
-              ...prev,
-              [msg.pi]: msg.done !== undefined
-                ? { lines: cur.lines, done: msg.done }
-                : { lines: cur.lines.concat(msg.line ?? '').slice(-200), done: null },
-            };
           });
         }
       };
@@ -100,13 +88,5 @@ export function useFleet() {
     }
   }, []);
 
-  const clearUpgrade = useCallback((pi: string) => {
-    setUpgrades((prev) => {
-      const next = { ...prev };
-      delete next[pi];
-      return next;
-    });
-  }, []);
-
-  return { fleet, connected, journal, upgrades, subscribeJournal, unsubscribeJournal, clearUpgrade };
+  return { fleet, connected, journal, subscribeJournal, unsubscribeJournal };
 }

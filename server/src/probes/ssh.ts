@@ -1,154 +1,108 @@
-// Thin ssh2 wrapper: one-shot execs and streaming execs with cleanup.
+// Remote command runner: shells out to the local `ssh` client.
+//
+// Using the system client (instead of the ssh2 library) means the server
+// runs with the operator's existing `~/.ssh/config`: per-host User,
+// IdentityFile, Port, ProxyJump, ControlMaster, … all apply, the
+// ssh-agent is used automatically, and no keys or passwords need to be
+// configured in the server itself. Everything runs as the normal user.
+//
+// Target precedence:
+//   host  — Pi.sshHost (an ssh-config alias/hostname) if set, else Pi.ip
+//   user  — Pi.user if set, else whatever ~/.ssh/config decides
+//   port  — Pi.sshPort / SSH_PORT if non-default, else ssh's own default
 
-import { readFileSync } from 'node:fs';
-import { Client } from 'ssh2';
-import type { ConnectConfig } from 'ssh2';
+import { spawn } from 'node:child_process';
 
-export interface SshOpts {
+export interface SshTarget {
+  /** Pi IP, or an ssh-config host alias (Pi.sshHost). */
   host: string;
-  port: number;
-  username: string;
-  keyPath?: string;
-  password?: string;
-  readyTimeout?: number;
+  /** Explicit user; omit to let `~/.ssh/config` decide. */
+  user?: string;
+  /** SSH port; omit (or 22) to let `~/.ssh/config` / the default decide. */
+  port?: number;
 }
 
-function toConnectConfig(opts: SshOpts): ConnectConfig {
-  const cfg: ConnectConfig = {
-    host: opts.host,
-    port: opts.port,
-    username: opts.username,
-    readyTimeout: opts.readyTimeout ?? 6000,
-    keepaliveInterval: 15_000,
-    keepaliveCountMax: 3,
-  };
-  if (opts.keyPath) {
-    try {
-      cfg.privateKey = readFileSync(opts.keyPath);
-    } catch {
-      // no key file → fall through to password if configured
-    }
-  }
-  if (cfg.privateKey === undefined && opts.password) cfg.password = opts.password;
-  return cfg;
+const SSH_OPTS = [
+  // Never prompt (no password or passphrase entry): auth problems must
+  // fail fast so probes count as misses instead of hanging.
+  '-o', 'BatchMode=yes',
+  '-o', 'NumberOfPasswordPrompts=0',
+  // New Pis join without pre-seeding known_hosts; *changed* keys are
+  // still rejected.
+  '-o', 'StrictHostKeyChecking=accept-new',
+  '-o', 'ConnectTimeout=6',
+];
+
+function sshArgs(t: SshTarget, cmd: string): string[] {
+  const args = [...SSH_OPTS];
+  if (t.port && t.port !== 22) args.push('-p', String(t.port));
+  args.push(t.user ? `${t.user}@${t.host}` : t.host, cmd);
+  return args;
 }
 
-export function connect(opts: SshOpts): Promise<Client> {
+/** Run a command to completion; resolves with stdout(+stderr) on exit 0. */
+export function runOnce(t: SshTarget, cmd: string, timeoutMs = 8000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const c = new Client();
+    let out = '';
+    const child = spawn('ssh', sshArgs(t, cmd), { stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => {
-      c.end();
-      reject(new Error(`connect timeout to ${opts.host}:${opts.port}`));
-    }, (opts.readyTimeout ?? 6000) + 2000);
-    c.on('ready', () => {
-      clearTimeout(timer);
-      resolve(c);
-    });
-    c.on('error', (err: Error) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    c.connect(toConnectConfig(opts));
-  });
-}
-
-/** Run a command to completion; resolves with stdout. */
-export function execOnce(opts: SshOpts, cmd: string, timeoutMs = 8000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const c = new Client();
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      c.end();
-      reject(new Error(`exec timeout: ${cmd.slice(0, 60)}...`));
+      child.kill('SIGKILL');
+      reject(new Error(`ssh timeout to ${t.host} after ${timeoutMs}ms`));
     }, timeoutMs);
-
-    c.on('ready', () => {
-      c.exec(cmd, (err, stream) => {
-        if (err) {
-          clearTimeout(timer);
-          c.end();
-          reject(err);
-          return;
-        }
-        let out = '';
-        stream.on('data', (d: Buffer) => {
-          out += d.toString();
-        });
-        stream.stderr.on('data', (d: Buffer) => {
-          out += d.toString();
-        });
-        stream.on('close', (code: number) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          c.end();
-          if (code === 0) resolve(out);
-          else reject(new Error(`exit ${code}: ${out.slice(-200)}`));
-        });
-      });
+    child.stdout.on('data', (d: Buffer) => {
+      out += d.toString();
     });
-    c.on('error', (err: Error) => {
-      if (settled) return;
-      settled = true;
+    child.stderr.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.on('error', (err: Error) => {
       clearTimeout(timer);
-      c.end();
-      reject(err);
+      reject(new Error(`ssh spawn failed: ${err.message}`));
     });
-    c.connect(toConnectConfig(opts));
+    child.on('close', (code: number | null) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`ssh exit ${code} for ${t.host}: ${out.trim().slice(-200)}`));
+    });
   });
 }
 
 /**
- * Run a long-lived command (journals, upgrades). Resolves with a stop
- * function; `onExit` fires when the remote stream closes.
+ * Run a long-lived command (journal tails) and stream its output.
+ * Resolves immediately with a stop function; `onExit` fires when the
+ * process ends (code null when we stopped it, or it never ran).
  */
-export function execStream(
-  opts: SshOpts,
+export function runStream(
+  t: SshTarget,
   cmd: string,
   onData: (chunk: string) => void,
   onExit?: (code: number | null) => void,
-  timeoutMs = 15 * 60_000,
 ): Promise<() => void> {
   return new Promise((resolve, reject) => {
-    const c = new Client();
-    const timer = setTimeout(() => {
-      try { c.end(); } catch { /* already gone */ }
-      reject(new Error(`stream timeout: ${cmd.slice(0, 60)}...`));
-    }, timeoutMs);
-
-    c.on('ready', () => {
-      c.exec(cmd, (err, stream) => {
-        if (err) {
-          clearTimeout(timer);
-          c.end();
-          reject(err);
-          return;
-        }
-        let settled = false;
-        const stop = (): void => {
-          try { stream.close(); } catch { /* already closed */ }
-        };
-        const finish = (code: number | null): void => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          onExit?.(code);
-          c.end();
-          resolve(stop);
-        };
-        stream.on('data', (d: Buffer) => onData(d.toString()));
-        stream.stderr.on('data', (d: Buffer) => onData(d.toString()));
-        stream.on('close', (code: number) => finish(code ?? null));
-        resolve(stop);
-      });
+    let child;
+    try {
+      child = spawn('ssh', sshArgs(t, cmd), { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    let stopped = false;
+    const stop = (): void => {
+      if (stopped) return;
+      stopped = true;
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      // Give ssh a moment to exit cleanly, then force it.
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, 2000).unref();
+    };
+    child.stdout.on('data', (d: Buffer) => onData(d.toString()));
+    child.stderr.on('data', (d: Buffer) => onData(d.toString()));
+    child.on('error', (err: Error) => {
+      if (!stopped) reject(new Error(`ssh spawn failed: ${err.message}`));
+      onExit?.(null);
     });
-    c.on('error', (err: Error) => {
-      clearTimeout(timer);
-      c.end();
-      reject(err);
+    child.on('close', (code: number | null) => {
+      onExit?.(stopped ? null : code ?? null);
     });
-    c.connect(toConnectConfig(opts));
+    resolve(stop);
   });
 }

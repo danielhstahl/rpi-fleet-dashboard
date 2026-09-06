@@ -1,8 +1,8 @@
 // Network traffic: sample /sys/class/net byte counters over SSH; the fleet
 // derives per-interface bps from consecutive samples.
 
-import type { SshOpts } from './ssh.js';
-import { execOnce } from './ssh.js';
+import type { SshTarget } from './ssh.js';
+import { runOnce } from './ssh.js';
 import type { Fleet } from '../state/fleet.js';
 
 const NET_SCRIPT = `
@@ -28,7 +28,7 @@ export function parseNet(raw: string): Record<string, { rx: number; tx: number }
   return out;
 }
 
-export async function sampleNetwork(opts: SshOpts, fleet: Fleet, piId: string): Promise<void> {
-  const raw = await execOnce(opts, NET_SCRIPT, 8000);
+export async function sampleNetwork(t: SshTarget, fleet: Fleet, piId: string): Promise<void> {
+  const raw = await runOnce(t, NET_SCRIPT, 8000);
   fleet.updateNetwork(piId, parseNet(raw));
 }

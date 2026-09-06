@@ -1,11 +1,11 @@
 # pi-fleet
 
 A **local-network fleet manager for Raspberry Pis**: one dashboard to see every
-Pi's health, read its journal, update/upgrade its packages, watch its network
-traffic — and above all, have the UI **point your attention at whatever needs
-work**.
+Pi's health, read its journal, see which package updates are pending, watch its
+network traffic — and above all, have the UI **point your attention at whatever
+needs work**.
 
-Node (Express + ws + ssh2) server and React (Vite) front end, both in
+Node (Express + ws) server and React (Vite) front end, both in
 **strict TypeScript** (`strict`, `noUncheckedIndexedAccess`,
 `noUnusedLocals`) — `tsc` type-checks are part of the build and dev loop.
 
@@ -37,22 +37,29 @@ npm start                # server serves the dashboard + API on :8787
 
 ## Using real Pis
 
-The server talks to your Pis over **SSH** (agentless on the Pi side is *not*
-required — a plain SSH key is the auth path):
+The server talks to your Pis over **SSH** using your *local* `ssh` client — it
+shells out to `ssh`, so your existing `~/.ssh/config` just works: per-host
+`User`, `IdentityFile`, `Port`, `ProxyJump`, ssh-agent, control sockets, all
+of it. No credentials are configured in pi-fleet, and nothing needs root:
 
 ```bash
-SSH_USER=pi SSH_KEY=~/.ssh/id_ed25519 npm start
-# or password auth:
-SSH_PASSWORD=raspberry npm start
+npm start    # probes connect as whatever your ssh config says
 ```
+
+Requirements per Pi: an SSH user your local machine can already log in as
+(key or agent; no interactive passwords — probes run in batch mode), and
+`journalctl` + `apt` available (standard on Raspberry Pi OS). `apt list
+--upgradable` (the package probe) works for a normal user; only *applying*
+upgrades needs root, which is deliberately not something the dashboard does —
+see the Packages tab on each Pi.
 
 ### Discovery
 
 Two ways Pis get into the fleet:
 
 1. **Manual add** — `POST /api/pis {name, ip}` (e.g. `curl -X POST
-   localhost:8787/api/pis -d '{"name":"pi-cam","ip":"192.168.1.50"}'` with
-   JSON headers).
+   localhost:8787/api/pis -H 'Content-Type: application/json' -d '{"name":"pi-cam","ip":"192.168.1.50"}'` with
+   JSON headers).  If using `~/.ssh/config`, put your Host rather than the IP.
 2. **mDNS** — the server watches `_pi-fleet._tcp`. Run the tiny agent on each
    Pi to advertise it (systemd unit below).
 
@@ -77,10 +84,35 @@ Simpler: if Avahi is installed on the Pi, `avahi-publish-service pi-fleet \
 _tcp 8787` in a oneshot unit advertises the service. Manual add always works
 regardless.
 
-### Per-Pi SSH auth
+### Per-Pi connection overrides
 
-Global defaults come from `SSH_USER` / `SSH_KEY` / `SSH_PASSWORD`. (Per-Pi
-credential overrides are on the roadmap — see open beads.)
+If a Pi isn't reachable the way your `~/.ssh/config` says, manual add accepts
+optional overrides (they win over the config file):
+
+```bash
+curl -X POST localhost:8787/api/pis -H 'Content-Type: application/json' \
+  -d '{"name":"pi-cam","ip":"192.168.1.50","sshHost":"pi-cam","user":"pi","sshPort":2222}'
+```
+
+`sshHost` connects to an ssh-config alias (e.g. your `Host pi-cam` stanza)
+instead of the IP; `user`/`sshPort` pin user/port. Omit all three and pi-fleet
+connects exactly as `ssh <ip>` would from your machine.
+
+### Persistence
+
+In real mode the fleet is mirrored to a sqlite database (built-in
+`node:sqlite`, no native deps) at `FLEET_DB` (default `./fleet.db`):
+
+- Pi membership (name, ip, user, sshHost, sshPort, source, addedAt)
+- the retained history rings (cpu/mem/disk/temp/load + per-interface
+  network rates), pruned to the same capacities as the in-memory rings
+- the per-Pi journal tail (400 lines) and its sequence
+- the latest package-check state
+
+A server restart therefore does **not** lose the fleet or its history. Online
+state and probe-failure counts intentionally are not persisted — probes
+re-establish connectivity after the restart. Mock mode never touches the
+database (its Pis are re-seeded on every start). Delete the db file to reset.
 
 ## What gets monitored
 
@@ -90,7 +122,6 @@ credential overrides are on the roadmap — see open beads.)
 | Network traffic (per interface) | `/sys/class/net/*/statistics` deltas | 5 s |
 | Upgradable packages + security count | `apt list --upgradable` | 5 min |
 | Journal | `journalctl -n 200` history + `journalctl -f` live tail **only while someone is viewing** | on view |
-| Upgrades | streamed `apt-get full-upgrade` with live progress in the UI | manual |
 
 ## The attention engine
 
@@ -109,7 +140,7 @@ Every state change re-evaluates rules; each Pi gets a weighted score
 | Security updates pending | warning |
 | OOM kills in last hour | warning |
 | ≥20 error-level journal lines/hour | warning |
-| Plain updates pending, upgrade running | info |
+| Plain updates pending | info |
 
 ## API
 
@@ -117,13 +148,12 @@ Every state change re-evaluates rules; each Pi gets a weighted score
 - `GET /api/attention` — all attention items, worst first
 - `GET /api/pis/:id` — full Pi detail incl. history series
 - `GET /api/pis/:id/journal?limit=200` — recent journal lines
-- `POST /api/pis` — `{name, ip, user?, sshPort?, password?}` manual add
+- `POST /api/pis` — `{name, ip, user?, sshHost?, sshPort?}` manual add
 - `DELETE /api/pis/:id` — remove a Pi
-- `POST /api/pis/:id/upgrade` — start `apt full-upgrade` (progress over WS)
 - `POST /api/pis/:id/reprobe` — force health + package probe
 
 WebSocket `ws://host:8787/ws`:
-- server → `fleet` (5 s snapshot), `journal {pi, line}`, `upgrade {pi, line|done, ok}`
+- server → `fleet` (5 s snapshot), `journal {pi, line}`
 - client → `subscribe {pi}` / `unsubscribe {pi}` (journal tail only streams while subscribed)
 
 ## Config (env vars)
@@ -131,11 +161,9 @@ WebSocket `ws://host:8787/ws`:
 | Var | Default | Meaning |
 |---|---|---|
 | `PORT` | `8787` | HTTP/WS port |
-| `FLEET_MOCK` | — | `1` = simulated fleet (demo/dev) |
-| `SSH_USER` | `pi` | SSH user |
-| `SSH_KEY` | `~/.ssh/id_ed25519` | private key |
-| `SSH_PASSWORD` | — | password auth (overrides key) |
-| `SSH_PORT` | `22` | SSH port |
+| `FLEET_MOCK` | — | `1` = simulated fleet (demo/dev; no persistence) |
+| `FLEET_DB` | `./fleet.db` | sqlite file for fleet persistence (real mode only) |
+| `SSH_PORT` | `22` | SSH port (used when a Pi doesn't set one; `~/.ssh/config` still decides auth) |
 | `PROBE_INTERVAL_MS` | `15000` | health probe cadence |
 | `NET_INTERVAL_MS` | `5000` | traffic sampling cadence |
 | `PKG_INTERVAL_MS` | `300000` | apt state cadence |
@@ -144,7 +172,7 @@ WebSocket `ws://host:8787/ws`:
 
 ```bash
 npm run typecheck   # tsc: server (src+test) and web (src+test+config)
-npm test            # server: node:test suite (33 tests) via tsx;
+npm test            # server: node:test suite (38 tests) via tsx;
                     # web: renderToString smoke test for every component path
 npm run build       # server tsc -> dist/ + web tsc + vite production build
 ```
@@ -154,7 +182,6 @@ lockfile is the source of truth for installs.
 
 ## Known limitations / roadmap
 
-- Per-Pi SSH credentials (currently global env defaults)
 - Pi-side agent that advertises mDNS + optionally reports metrics directly
   (push instead of poll) — would allow monitoring without SSH
 - Alert notifications (e.g. webhook/Telegram when a critical appears)

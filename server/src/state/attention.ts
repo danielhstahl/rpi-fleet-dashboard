@@ -27,7 +27,6 @@ export interface AttentionInput {
   metrics: Metrics | null;
   pkgs: { total: number; security: number };
   journal: JournalCounts;
-  upgrading: boolean;
 }
 
 function item(severity: Severity, rule: string, title: string, detail: string, since?: number): AttentionItem {
@@ -109,9 +108,6 @@ function ruleLoad(p: AttentionInput): AttentionItem | null {
 }
 
 function rulePackages(p: AttentionInput): AttentionItem | null {
-  if (p.upgrading) {
-    return item('info', 'upgrading', 'Upgrade running', 'apt full-upgrade in progress', NOW());
-  }
   if (p.pkgs.security > 0) {
     return item('warning', 'security-updates', 'Security updates pending',
       `${p.pkgs.security} security update(s) of ${p.pkgs.total} pending`);

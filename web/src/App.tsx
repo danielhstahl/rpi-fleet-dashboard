@@ -6,7 +6,7 @@ import PiDetail from './components/PiDetail';
 import type { SnapshotPi } from './types';
 
 export default function App() {
-  const { fleet, connected, journal, upgrades, subscribeJournal, unsubscribeJournal, clearUpgrade } = useFleet();
+  const { fleet, connected, journal, subscribeJournal, unsubscribeJournal } = useFleet();
   const [selected, setSelected] = useState<string | null>(null);
 
   const piIndex = useMemo(() => {
@@ -50,10 +50,8 @@ export default function App() {
         <PiDetail
           pi={selectedPi}
           journalLines={journal}
-          upgrades={upgrades}
           subscribeJournal={subscribeJournal}
           unsubscribeJournal={unsubscribeJournal}
-          clearUpgrade={clearUpgrade}
           onClose={() => setSelected(null)}
         />
       )}

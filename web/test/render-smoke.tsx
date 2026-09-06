@@ -25,7 +25,6 @@ function fixturePi(over: Partial<SnapshotPi> = {}): SnapshotPi {
     source: 'mock',
     online: true,
     score: 50,
-    upgrading: false,
     probeFailures: 0,
     attention: [
       { severity: 'warning', rule: 'disk', title: 'Disk filling up', detail: 'root filesystem at 91%', since: Date.now() - 60000 },
@@ -123,10 +122,8 @@ const detail = renderToString(
   <PiDetail
     pi={fleet.pis[0]!}
     journalLines={{ 'mock-bravo': [{ at: Date.now(), level: 'info', unit: 'mockd', message: 'heartbeat ok' }] }}
-    upgrades={{}}
     subscribeJournal={noop}
     unsubscribeJournal={noop}
-    clearUpgrade={noop}
     onClose={noop}
   />,
 );
@@ -156,26 +153,50 @@ assert.ok(journal.includes('Failed password'), 'journal tab renders error line')
 // React SSR inserts a comment node between adjacent text segments: "2<!-- --> lines"
 assert.ok(journal.includes('2<!-- --> lines'), 'journal tab counts lines');
 
-const pkgs = renderToString(
-  <PackagesTab pi={fleet.pis[0]!} detail={null} upgrades={undefined} clearUpgrade={noop} />,
-);
+const pkgs = renderToString(<PackagesTab pi={fleet.pis[0]!} detail={null} />);
 assert.ok(pkgs.includes('upgradable'), 'packages tab renders');
-assert.ok(pkgs.includes('Upgrade packages (5)'), 'packages tab shows count');
+assert.ok(pkgs.includes('apt full-upgrade'), 'packages tab points to on-Pi upgrades (no in-UI upgrade action)');
+assert.ok(!pkgs.includes('Upgrade packages'), 'packages tab has no upgrade button');
 
-const upgradingPkgs = renderToString(
+const pkgsList = renderToString(
   <PackagesTab
-    pi={fixturePi({ upgrading: true })}
-    detail={null}
-    upgrades={{ lines: ['[1/10] sim'], done: null }}
-    clearUpgrade={noop}
+    pi={fleet.pis[0]!}
+    detail={{
+      id: 'mock-bravo',
+      name: 'pi-bravo',
+      ip: '10.0.0.12',
+      user: 'pi',
+      sshPort: 22,
+      source: 'mock',
+      addedAt: Date.now(),
+      online: true,
+      probeFailures: 0,
+      lastProbeAt: Date.now(),
+      lastProbeError: null,
+      metrics: null,
+      net: {},
+      hist: { cpu: [], mem: [], disk: [], temp: [], load: [] },
+      netHistory: {},
+      pkgs: {
+        total: 2,
+        security: 1,
+        list: ['openssl:bookworm-security 3.0.13-1', 'curl:bookworm 7.88.1'],
+        at: Date.now(),
+        checked: true,
+      },
+      journal: { lines: [], oomCount: 0, errorCount: 0, lastOom: null, lastError: null },
+      attention: [],
+      score: 0,
+    }}
   />,
 );
-assert.ok(upgradingPkgs.includes('in progress'), 'packages tab shows upgrade progress');
+assert.ok(pkgsList.includes('openssl:bookworm-security'), 'packages tab lists upgradable packages');
+assert.ok(pkgsList.includes('curl:bookworm'), 'packages tab lists plain updates');
 
-const donePkgs = renderToString(
-  <PackagesTab pi={fleet.pis[0]!} detail={null} upgrades={{ lines: ['done'], done: true }} clearUpgrade={noop} />,
+const pkgsClean = renderToString(
+  <PackagesTab pi={fixturePi({ pkgs: { total: 0, security: 0, checked: true } })} detail={null} />,
 );
-assert.ok(donePkgs.includes('finished successfully'), 'packages tab shows completion');
+assert.ok(pkgsClean.includes('Nothing pending'), 'packages tab shows clean state');
 
 const net = renderToString(
   <NetworkTab

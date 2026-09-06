@@ -177,10 +177,8 @@ header {
   font-size: 13px;
   border: 1px solid var(--line);
 }
-.banner.upgrading { border-color: var(--info); color: var(--info); }
 .banner.offline { border-color: var(--crit); color: var(--crit); }
 .banner.okb { border-color: var(--ok); color: var(--ok); }
-.banner.critb { border-color: var(--crit); color: var(--crit); }
 
 /* ---------- detail pane ---------- */
 .detail {
@@ -280,31 +278,8 @@ header {
   border-bottom: 1px solid var(--line);
 }
 .pkg.sec { color: var(--warn); }
-.upgrade-progress { display: flex; flex-direction: column; gap: 8px; }
-.upgrade-log {
-  background: #0a0e14;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  height: 220px;
-  overflow-y: auto;
-  font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
-  color: #9ecbff;
-}
-.btn {
-  align-self: flex-start;
-  background: var(--bg3);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font: inherit;
-}
-.btn.primary { border-color: var(--accent); color: var(--accent); }
-.btn.primary:hover { background: rgba(88, 166, 255, 0.1); }
-.btn:disabled { opacity: 0.5; cursor: default; }
-.linkish { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; margin-left: 12px; font: inherit; }
+.pkg-note { font-size: 12px; margin: 8px 0 0; }
+.pkg-note code { font: 11px ui-monospace, Menlo, Consolas, monospace; color: var(--text); }
 
 /* ---------- network ---------- */
 .net-iface { background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }

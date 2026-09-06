@@ -89,13 +89,11 @@ test('journal: OOM/error counts and window pruning', () => {
   assert.equal(j2.errorCount, 0);
 });
 
-test('packages + upgrading drive attention', () => {
+test('packages drive attention', () => {
   const f = new Fleet();
   f.addPi({ id: 'p', name: 'p', ip: '1.1.1.1' });
   f.setPackages('p', { total: 10, security: 4, list: ['a/security 1 amd64'] });
   assert.ok(f.get('p')!.attention.some((a) => a.rule === 'security-updates'));
-  f.setUpgrading('p', true);
-  assert.ok(f.get('p')!.attention.some((a) => a.rule === 'upgrading'));
   f.setPackages('p', { total: 0, security: 0, list: [] });
   assert.ok(!f.get('p')!.attention.some((a) => a.rule === 'security-updates'));
 });
