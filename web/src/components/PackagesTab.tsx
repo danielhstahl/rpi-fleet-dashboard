@@ -1,19 +1,16 @@
-import { useState } from 'react';
-import type { PiDetailData, SnapshotPi, UpgradeState } from '../types';
+import type { PiDetailData, SnapshotPi } from '../types';
 
 interface PackagesTabProps {
   pi: SnapshotPi;
   detail: PiDetailData | null;
-  upgrades: UpgradeState | undefined;
-  clearUpgrade: (pi: string) => void;
 }
 
 /**
- * Package state + one-click upgrade with live progress (ws 'upgrade' events).
+ * Read-only package state: what's pending on this Pi (apt list, which a
+ * normal user can run). The dashboard itself never applies upgrades —
+ * that needs root, so it's done on the Pi (console or your own tooling).
  */
-export default function PackagesTab({ pi, detail, upgrades, clearUpgrade }: PackagesTabProps) {
-  const [starting, setStarting] = useState(false);
-  const up = upgrades;
+export default function PackagesTab({ pi, detail }: PackagesTabProps) {
   // detail.pkgs has list/at; the snapshot only has counts — merge explicitly.
   const pkgs = {
     total: detail?.pkgs.total ?? pi.pkgs.total,
@@ -24,46 +21,15 @@ export default function PackagesTab({ pi, detail, upgrades, clearUpgrade }: Pack
   };
   const list = pkgs.list;
 
-  async function startUpgrade() {
-    setStarting(true);
-    try {
-      const r = await fetch(`/api/pis/${pi.id}/upgrade`, { method: 'POST' });
-      if (!r.ok) {
-        const d: unknown = await r.json().catch(() => ({}));
-        const err =
-          typeof d === 'object' && d !== null && typeof (d as { error?: unknown }).error === 'string'
-            ? (d as { error: string }).error
-            : `upgrade failed: ${r.status}`;
-        alert(err);
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setStarting(false);
-    }
-  }
-
   return (
     <div className="tab-body">
       <div className="pkgs-summary">
-        <div className="pkg-count total">{pi.upgrading ? '—' : pkgs.total} <small>upgradable</small></div>
+        <div className="pkg-count total">{pkgs.total} <small>upgradable</small></div>
         <div className={`pkg-count ${pkgs.security > 0 ? 'sec' : 'ok'}`}>{pkgs.security} <small>security</small></div>
         <div className="muted">{pkgs.checked && pkgs.at ? `checked ${new Date(pkgs.at).toLocaleTimeString()}` : 'not checked yet'}</div>
       </div>
 
-      {pi.upgrading || (up && up.done === null) ? (
-        <div className="upgrade-progress">
-          <div className="banner upgrading">▲ apt full-upgrade in progress — live output:</div>
-          <pre className="upgrade-log">{(up?.lines ?? []).slice(-30).join('\n')}</pre>
-        </div>
-      ) : up && up.done !== null ? (
-        <div className={`banner ${up.done ? 'okb' : 'critb'}`}>
-          {up.done ? '✓ Upgrade finished successfully' : '✕ Upgrade finished with errors — see log above'}
-          <button className="linkish" onClick={() => clearUpgrade(pi.id)}>dismiss</button>
-        </div>
-      ) : null}
-
-      {list.length > 0 && !pi.upgrading && (
+      {list.length > 0 ? (
         <div className="pkg-list">
           <h3>Upgradable (top {list.length})</h3>
           {list.map((p) => (
@@ -72,12 +38,15 @@ export default function PackagesTab({ pi, detail, upgrades, clearUpgrade }: Pack
             </div>
           ))}
         </div>
+      ) : (
+        <div className="banner okb">✓ Nothing pending{pkgs.checked ? '' : ' (not checked yet)'}</div>
       )}
 
-      {!pi.upgrading && (
-        <button className="btn primary" onClick={startUpgrade} disabled={starting}>
-          {starting ? 'Starting…' : `Upgrade packages${pkgs.total ? ` (${pkgs.total})` : ''}`}
-        </button>
+      {pkgs.total > 0 && (
+        <p className="muted pkg-note">
+          Upgrades need root — apply them on the Pi itself (
+          <code>sudo apt full-upgrade</code>) or via your own tooling.
+        </p>
       )}
     </div>
   );

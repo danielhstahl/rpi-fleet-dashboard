@@ -3,17 +3,15 @@ import OverviewTab from './OverviewTab';
 import JournalTab from './JournalTab';
 import PackagesTab from './PackagesTab';
 import NetworkTab from './NetworkTab';
-import type { HistPoint, JournalLine, NetSample, PiDetailData, SnapshotPi, UpgradeState } from '../types';
+import type { HistPoint, JournalLine, NetSample, PiDetailData, SnapshotPi } from '../types';
 
 type TabId = 'overview' | 'journal' | 'packages' | 'network';
 
 interface PiDetailProps {
   pi: SnapshotPi;
   journalLines: Record<string, JournalLine[]>;
-  upgrades: Record<string, UpgradeState>;
   subscribeJournal: (pi: string) => void;
   unsubscribeJournal: (pi: string) => void;
-  clearUpgrade: (pi: string) => void;
   onClose: () => void;
 }
 
@@ -24,10 +22,8 @@ interface PiDetailProps {
 export default function PiDetail({
   pi,
   journalLines,
-  upgrades,
   subscribeJournal,
   unsubscribeJournal,
-  clearUpgrade,
   onClose,
 }: PiDetailProps) {
   const [detail, setDetail] = useState<PiDetailData | null>(null);
@@ -83,9 +79,7 @@ export default function PiDetail({
       </div>
       {tab === 'overview' && <OverviewTab pi={pi} hist={hist} />}
       {tab === 'journal' && <JournalTab pi={pi} lines={journalLines[pi.id] ?? []} />}
-      {tab === 'packages' && (
-        <PackagesTab pi={pi} detail={detail} upgrades={upgrades[pi.id]} clearUpgrade={clearUpgrade} />
-      )}
+      {tab === 'packages' && <PackagesTab pi={pi} detail={detail} />}
       {tab === 'network' && <NetworkTab pi={pi} netHistory={netHistory} />}
     </div>
   );

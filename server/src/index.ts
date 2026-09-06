@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { config } from './config.js';
 import { Fleet } from './state/fleet.js';
+import { openFleetStore } from './state/store.js';
+import type { FleetStore } from './state/store.js';
 import type { Prober, WsServerMsg } from './types.js';
 import { makeProberForPi, startProbeEngine } from './probes/engine.js';
 import { startMdnsDiscovery } from './discovery/mdns.js';
@@ -20,11 +22,22 @@ import type { AddManualPiInput, AddManualPiResult } from './api/rest.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(__dirname, '../../web/dist');
 
-const fleet = new Fleet();
+// Persistence (live mode only): a sqlite mirror so Pi membership, history
+// rings, journal tails and package state survive restarts. Mock mode stays
+// ephemeral by design (its Pis are re-seeded on every start).
+const FLEET_CAPS = {
+  historyPoints: 720,
+  netHistoryPoints: 720,
+  journalLines: 400,
+  journalWindowMs: 3_600_000,
+};
+let store: FleetStore | null = config.mock ? null : openFleetStore(config.dbPath, FLEET_CAPS);
+const fleet = new Fleet({ ...FLEET_CAPS, storage: store ?? undefined });
 const probers = new Map<string, Prober>();
 
 // Attach a prober whenever a Pi joins (real mode only — in mock mode the
-// mock fleet installs its own probers).
+// mock fleet installs its own probers). Also fires for Pis restored from
+// the store at startup.
 fleet.onEvent = (ev) => {
   if (ev.type === 'add') {
     if (!config.mock) {
@@ -36,14 +49,19 @@ fleet.onEvent = (ev) => {
   }
 };
 
+if (store) {
+  const restored = fleet.restore(store.loadAll());
+  if (restored > 0) console.log(`[store] restored ${restored} Pi(s) from ${config.dbPath}`);
+}
+
 const addManualPi = (input: AddManualPiInput): AddManualPiResult => {
   const pi = fleet.addPi({
     name: input.name,
     ip: input.ip,
     user: input.user,
+    sshHost: input.sshHost,
     sshPort: input.sshPort,
     source: 'manual',
-    auth: input.password ? { type: 'password' } : { type: 'key' },
   });
   return { ok: true, pi: { id: pi.id, name: pi.name, ip: pi.ip } };
 };
@@ -72,7 +90,6 @@ if (config.mock) {
       netIntervalMs: 2500,
       pkgIntervalMs: config.intervals.pkgMs,
       journalIntervalMs: 3000,
-      upgradeDelayMs: 400,
     },
   });
 } else {
@@ -111,6 +128,7 @@ function shutdown(): void {
   console.log('shutting down…');
   engine.close();
   mock?.stop();
+  store?.close();
   ws.close();
   server.close();
   process.exit(0);

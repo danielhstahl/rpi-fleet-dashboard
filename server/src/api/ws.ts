@@ -1,5 +1,5 @@
 // WebSocket hub: 5s fleet snapshots to everyone, per-Pi journal tails only
-// while at least one viewer is subscribed, upgrade progress broadcasts.
+// while at least one viewer is subscribed.
 
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';

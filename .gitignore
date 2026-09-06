@@ -9,6 +9,9 @@
 node_modules/
 dist/
 *.log
+fleet.db
+fleet.db-wal
+fleet.db-shm
 .beads
 .agents
 AGENTS.md

@@ -9,9 +9,11 @@ import type { Prober, WsServerMsg } from '../types.js';
 export interface AddManualPiInput {
   name: string;
   ip: string;
+  /** Explicit SSH user (default: whatever ~/.ssh/config decides). */
   user?: string;
+  /** ssh-config host alias to connect to instead of the IP. */
+  sshHost?: string;
   sshPort?: number;
-  password?: string;
 }
 
 export interface AddManualPiResult {
@@ -79,6 +81,10 @@ export function restRouter(
       res.status(400).json({ ok: false, error: 'name and ip are required' });
       return;
     }
+    if (body.sshHost !== undefined && typeof body.sshHost !== 'string') {
+      res.status(400).json({ ok: false, error: 'sshHost must be a string' });
+      return;
+    }
     const result = opts.addManualPi(body);
     if (!result.ok) {
       res.status(409).json({ ok: false, error: result.error });
@@ -98,52 +104,6 @@ export function restRouter(
       return;
     }
     res.json({ ok: true });
-  });
-
-  router.post('/pis/:id/upgrade', (req: Request, res: Response) => {
-    const id = routeId(req, res);
-    if (id === null) return;
-    const pi = fleet.get(id);
-    if (!pi) {
-      res.status(404).json({ ok: false, error: 'not found' });
-      return;
-    }
-    if (pi.upgrading) {
-      res.status(409).json({ ok: false, error: 'already upgrading' });
-      return;
-    }
-    const prober = opts.probers?.get(pi.id);
-    if (!prober) {
-      res.status(503).json({ ok: false, error: 'no prober attached' });
-      return;
-    }
-    fleet.setUpgrading(pi.id, true);
-    const ws = req.app.locals.ws;
-    let lineCount = 0;
-    res.status(202).json({ ok: true, started: true, note: 'progress streamed over ws' });
-    prober
-      .upgrade({
-        onLine: (line: string): void => {
-          lineCount += 1;
-          if (lineCount <= 10) {
-            const msg: WsServerMsg = { type: 'upgrade', pi: pi.id, line };
-            ws?.broadcast(msg);
-          }
-        },
-        onDone: (ok: boolean): void => {
-          ws?.broadcast({ type: 'upgrade', pi: pi.id, done: true, ok });
-        },
-      })
-      .catch((e: unknown) => {
-        fleet.setUpgrading(pi.id, false);
-        ws?.broadcast({
-          type: 'upgrade',
-          pi: pi.id,
-          done: true,
-          ok: false,
-          line: e instanceof Error ? e.message : String(e),
-        });
-      });
   });
 
   router.post('/pis/:id/reprobe', (req: Request, res: Response) => {

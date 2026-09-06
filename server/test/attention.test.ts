@@ -11,7 +11,6 @@ const base = (over: Partial<AttentionInput> = {}): AttentionInput => ({
   metrics: null,
   pkgs: { total: 0, security: 0 },
   journal: { oomCount: 0, errorCount: 0 },
-  upgrading: false,
   ...over,
 });
 
@@ -75,10 +74,6 @@ test('journal: OOM kills and error flood warn', () => {
   assert.ok(evaluateAttention(base({ journal: { oomCount: 2 } })).some((i) => i.rule === 'oom'));
   assert.ok(evaluateAttention(base({ journal: { errorCount: 25 } })).some((i) => i.rule === 'journal-errors'));
   assert.ok(!evaluateAttention(base({ journal: { errorCount: 5 } })).some((i) => i.rule === 'journal-errors'));
-});
-
-test('upgrade in progress is info', () => {
-  assert.ok(evaluateAttention(base({ upgrading: true })).some((i) => i.rule === 'upgrading' && i.severity === 'info'));
 });
 
 test('score weights: critical 100, warning 25, info 1', () => {

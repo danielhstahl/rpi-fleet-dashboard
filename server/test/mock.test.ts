@@ -10,7 +10,6 @@ const fastConfig: MockIntervals = {
   netIntervalMs: 20,
   pkgIntervalMs: 100_000,
   journalIntervalMs: 30,
-  upgradeDelayMs: 2,
 };
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -63,30 +62,6 @@ test('mock fleet: seeded problems surface as attention', async () => {
     assert.equal(snap.pis.length, 4);
     const alphaSnap = snap.pis.find((p) => p.id === 'mock-alpha');
     assert.ok(alphaSnap && Array.isArray(alphaSnap.spark.cpu));
-  } finally {
-    mock.stop();
-  }
-});
-
-test('mock prober: upgrade completes and clears packages', async () => {
-  const fleet = new Fleet();
-  const probers = new Map<string, Prober>();
-  const mock = startMockFleet({ fleet, config: fastConfig, probers, broadcast: () => {} });
-  try {
-    const delta = fleet.get('mock-delta')!;
-    const prober = probers.get(delta.id)!;
-    const lines: string[] = [];
-    let done: boolean | null = null;
-    await prober.upgrade({
-      onLine: (l: string) => lines.push(l),
-      onDone: (ok: boolean) => {
-        done = ok;
-      },
-    });
-    assert.equal(done, true);
-    assert.ok(lines.length >= 5);
-    assert.equal(fleet.get('mock-delta')!.pkgs.total, 0);
-    assert.equal(fleet.get('mock-delta')!.pkgs.security, 0);
   } finally {
     mock.stop();
   }

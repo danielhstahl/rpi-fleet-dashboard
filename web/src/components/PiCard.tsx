@@ -23,7 +23,6 @@ export default function PiCard({ pi, selected, onSelect }: PiCardProps) {
         <span className="pi-ip">{pi.ip}</span>
         <span className="pi-src">{pi.source}</span>
       </div>
-      {pi.upgrading && <div className="banner upgrading">▲ package upgrade running…</div>}
       <div className="pi-metrics">
         <div className="pm">
           <label>cpu</label>

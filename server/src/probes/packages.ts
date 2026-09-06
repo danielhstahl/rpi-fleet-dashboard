@@ -4,8 +4,8 @@
 // The script emits "total|security" on the first line, then up to a dozen
 // "name version" lines for the UI.
 
-import type { SshOpts } from './ssh.js';
-import { execOnce } from './ssh.js';
+import type { SshTarget } from './ssh.js';
+import { runOnce } from './ssh.js';
 import type { Fleet } from '../state/fleet.js';
 
 export const PKG_SCRIPT = `
@@ -27,8 +27,8 @@ export function parsePkgs(raw: string): { total: number; security: number } {
   };
 }
 
-export async function probePackages(opts: SshOpts, fleet: Fleet, piId: string): Promise<void> {
-  const raw = await execOnce(opts, PKG_SCRIPT, 45_000);
+export async function probePackages(t: SshTarget, fleet: Fleet, piId: string): Promise<void> {
+  const raw = await runOnce(t, PKG_SCRIPT, 45_000);
   const lines = raw.trim().split('\n');
   const { total, security } = parsePkgs(raw);
   const list = lines
