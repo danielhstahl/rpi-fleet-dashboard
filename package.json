@@ -10,8 +10,9 @@
   "scripts": {
     "dev:server": "npm run dev -w @pi-fleet/server",
     "dev:web": "npm run dev -w @pi-fleet/web",
-    "build": "npm run build -w @pi-fleet/web",
+    "build": "npm run build -w @pi-fleet/server && npm run build -w @pi-fleet/web",
     "start": "npm run start -w @pi-fleet/server",
-    "test": "npm run test -w @pi-fleet/server"
+    "test": "npm run test -w @pi-fleet/server && npm run test -w @pi-fleet/web",
+    "typecheck": "npm run typecheck -w @pi-fleet/server && npm run typecheck -w @pi-fleet/web"
   }
 }

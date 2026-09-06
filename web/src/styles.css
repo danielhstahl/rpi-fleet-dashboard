@@ -65,7 +65,7 @@ header {
   margin-bottom: 16px;
 }
 .attention.ok { border-left-color: var(--ok); color: var(--muted); }
-.att-title { font-weight: 650; margin-bottom: 6px; }
+.att-title { font-weight: 650; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
 .att-items { display: flex; flex-direction: column; gap: 4px; }
 .att-item {
   display: flex;
@@ -157,6 +157,9 @@ header {
 .badge.attn.critical { color: var(--crit); border-color: var(--crit); }
 .badge.attn.warning { color: var(--warn); border-color: var(--warn); }
 .badge.attn.info { color: var(--info); border-color: var(--info); }
+/* small dot inside badges — same visual weight as the 9px status dots */
+.badge { display: inline-flex; align-items: center; gap: 4px; }
+.badge .bdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 
 /* ---------- banners ---------- */
 .banner {

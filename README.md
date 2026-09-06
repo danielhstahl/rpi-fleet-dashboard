@@ -5,7 +5,9 @@ Pi's health, read its journal, update/upgrade its packages, watch its network
 traffic — and above all, have the UI **point your attention at whatever needs
 work**.
 
-Node (Express + ws + ssh2) server, React (Vite) front end.
+Node (Express + ws + ssh2) server and React (Vite) front end, both in
+**strict TypeScript** (`strict`, `noUncheckedIndexedAccess`,
+`noUnusedLocals`) — `tsc` type-checks are part of the build and dev loop.
 
 ```
 pi-fleet/
@@ -29,7 +31,7 @@ all of it worst-first.
 ### Production-ish single process
 
 ```bash
-npm run build            # builds web/dist
+npm run build            # server tsc -> server/dist, web tsc + vite -> web/dist
 npm start                # server serves the dashboard + API on :8787
 ```
 
@@ -101,7 +103,7 @@ Every state change re-evaluates rules; each Pi gets a weighted score
 | Root disk ≥ 95% | critical |
 | Temp ≥ 85 °C (throttling) | critical |
 | Load ≥ 6× cores | critical |
-| Flaky (1–2 failed probes) | warning |
+| Intermittent (1–2 failed probes) | warning |
 | Stale telemetry (>5 min) | warning |
 | Disk ≥ 85%, mem ≥ 95%, temp ≥ 75 °C, load ≥ 3× cores | warning |
 | Security updates pending | warning |
@@ -138,12 +140,17 @@ WebSocket `ws://host:8787/ws`:
 | `NET_INTERVAL_MS` | `5000` | traffic sampling cadence |
 | `PKG_INTERVAL_MS` | `300000` | apt state cadence |
 
-## Tests
+## Quality gates
 
 ```bash
-npm test        # node:test suite: attention rules, fleet store, parsers, mock fleet
-npm run build   # production build of the dashboard
+npm run typecheck   # tsc: server (src+test) and web (src+test+config)
+npm test            # server: node:test suite (33 tests) via tsx;
+                    # web: renderToString smoke test for every component path
+npm run build       # server tsc -> dist/ + web tsc + vite production build
 ```
+
+A clean `rm -rf node_modules && npm ci` is expected to pass all three — the
+lockfile is the source of truth for installs.
 
 ## Known limitations / roadmap
 
