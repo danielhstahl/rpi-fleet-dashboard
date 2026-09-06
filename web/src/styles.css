@@ -56,7 +56,11 @@ header {
 .conn.off { color: var(--crit); }
 
 /* ---------- attention panel ---------- */
-.attention {
+/* NOTE: the panel container class must not be a bare status name
+ * ("attention"/"ok"/...): dots and cards reuse those class names, so an
+ * unscoped .attention rule would style the yellow status dot (and
+ * attention cards) with the panel's padding/border/margin. */
+.attention-panel {
   background: var(--bg2);
   border: 1px solid var(--line);
   border-left: 3px solid var(--warn);
@@ -64,7 +68,7 @@ header {
   padding: 10px 14px;
   margin-bottom: 16px;
 }
-.attention.ok { border-left-color: var(--ok); color: var(--muted); }
+.attention-panel.ok { border-left-color: var(--ok); color: var(--muted); }
 .att-title { font-weight: 650; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
 .att-items { display: flex; flex-direction: column; gap: 4px; }
 .att-item {
@@ -140,9 +144,14 @@ header {
 }
 
 .pi-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
-.pm { display: flex; align-items: center; gap: 6px; }
+.pm { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .pm label { font-size: 11px; color: var(--muted); width: 34px; flex: none; }
 .pm b { font-size: 12px; width: 48px; text-align: right; flex: none; }
+/* The sparkline fills whatever the grid column allows instead of forcing a
+ * 120px min-content (label 34 + spark 120 + value 48 + gaps > column width,
+ * which used to push the right-hand rows past the card's right edge).
+ * The SVG's viewBox + preserveAspectRatio="none" scales it to fit. */
+.pm .spark, .pm .spark-empty { flex: 1 1 auto; min-width: 0; }
 .spark-empty { color: var(--muted); font-size: 11px; display: inline-block; text-align: center; }
 
 .pi-foot { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }

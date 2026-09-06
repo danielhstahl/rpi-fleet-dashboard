@@ -24,7 +24,7 @@ export default function AttentionPanel({ fleet, onSelect, piIndex }: AttentionPa
   }
   if (items.length === 0) {
     return (
-      <div className="attention ok">
+      <div className="attention-panel ok">
         <span className="att-title">
           <span className="dot ok" /> All quiet
         </span>
@@ -34,7 +34,7 @@ export default function AttentionPanel({ fleet, onSelect, piIndex }: AttentionPa
   }
   const worst = items.some((i) => i.severity === 'critical') ? 'critical' : 'warning';
   return (
-    <div className="attention">
+    <div className="attention-panel">
       <div className="att-title">
         <span className={`dot ${worst}`} />
         Needs work — {items.filter((i) => i.severity === 'critical').length} critical · {items.filter((i) => i.severity === 'warning').length} warning

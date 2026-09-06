@@ -116,6 +116,7 @@ const quietAtt = renderToString(
 );
 assert.ok(quietAtt.includes('All quiet'), 'attention panel quiet state');
 assert.ok(quietAtt.includes('dot ok'), 'quiet state uses a green dot');
+assert.ok(quietAtt.includes('attention-panel'), 'panel uses the scoped container class (not the bare "attention" status name, which would style the status dots)');
 assert.ok(!att.includes('⚠') && !quietAtt.includes('⚠'), 'no oversized warning glyphs');
 
 const detail = renderToString(
