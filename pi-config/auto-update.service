@@ -1,0 +1,9 @@
+[Unit]
+Description=Run auto-update
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/auto-update.sh
+
+[Install]
+WantedBy=multi-user.target
