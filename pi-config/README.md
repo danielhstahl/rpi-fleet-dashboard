@@ -4,7 +4,7 @@ Copy files to the appropriate directory:
 ```sh
 sudo cp auto-update.sh /usr/bin
 sudo cp auto-update.service /etc/systemd/system/
-sudo cp auto-update.task /etc/systemd/system/
+sudo cp auto-update.timer /etc/systemd/system/
 ```
 
 Enable tasks:
